@@ -7,14 +7,8 @@ from html.parser import HTMLParser
 BASE = "https://educamosclm.castillalamancha.es"
 PAGE = BASE + "/s/messages"
 
-KEYWORDS = (
-    "cerbero", "openid", "oauth", "login",
-    "messages", "mensajeria", "mensaje",
-    "api/", "token"
-)
 
-
-class ScriptParser(HTMLParser):
+class Parser(HTMLParser):
     def __init__(self):
         super().__init__()
         self.scripts = []
@@ -26,98 +20,56 @@ class ScriptParser(HTMLParser):
                 self.scripts.append(src)
 
 
-def download(url, limit):
-    request = urllib.request.Request(
-        url,
-        headers={"User-Agent": "Mozilla/5.0"}
+def descargar(url):
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "Mozilla/5.0"}
     )
-    with urllib.request.urlopen(
-        request, timeout=25
-    ) as response:
-        return response.read(limit).decode(
+    with urllib.request.urlopen(req, timeout=25) as r:
+        return r.read(8_000_000).decode(
             "utf-8", errors="replace"
         )
 
 
 def main():
-    print("Analisis publico JavaScript Educamos")
-    print("No se utilizan credenciales.")
-
-    html = download(PAGE, 500_000)
-
-    parser = ScriptParser()
+    html = descargar(PAGE)
+    parser = Parser()
     parser.feed(html)
 
-    main_scripts = [
+    principales = [
         urllib.parse.urljoin(PAGE, src)
         for src in parser.scripts
-        if "main." in src
-        and src.endswith(".js")
+        if re.search(r"(?:^|/)main\.[^/]+\.js$", src)
     ]
 
-    if not main_scripts:
-        print("No se encontro main.js")
+    if not principales:
+        print("No se localizo el modulo principal.")
         return
 
-    url = main_scripts[0]
-    print("Script principal localizado.")
+    js = descargar(principales[0])
+    print("JavaScript principal:", len(js), "caracteres")
 
-    javascript = download(url, 8_000_000)
+    patrones = {
+        "Carga dinamica": r"import\(",
+        "Rutas lazy Angular": r"loadChildren",
+        "Chunks Webpack": r"webpackChunk|__webpack_require__",
+        "Referencias a archivos JS": r"[\w.-]+\.js",
+    }
 
-    print("Caracteres analizados:", len(javascript))
+    for nombre, patron in patrones.items():
+        encontrados = re.findall(patron, js, re.I)
+        print(nombre, ":", len(encontrados))
 
-    for keyword in KEYWORDS:
-        matches = list(re.finditer(
-            re.escape(keyword),
-            javascript,
-            re.IGNORECASE
-        ))
-        print(f"{keyword}: {len(matches)} coincidencias")
-
-    # Solo patrones de rutas, sin valores ni parametros.
-    routes = set(re.findall(
-        r'["\'](/(?:api|auth|oauth|s)/'
-        r'[A-Za-z0-9_./{}-]{2,120})["\']',
-        javascript
+    archivos = set(re.findall(
+        r'[\w.-]+(?:\.[a-f0-9]{8,})?\.js',
+        js, re.I
     ))
 
-    print("Rutas candidatas:", len(routes))
+    print("Archivos JS candidatos:", len(archivos))
+    for archivo in sorted(archivos)[:40]:
+        print("Archivo:", archivo)
 
-    for route in sorted(routes)[:40]:
-        print("Ruta:", route)
-
-    print("Analisis de referencias a messages:")
-
-    for index, match in enumerate(
-        re.finditer("messages", javascript, re.IGNORECASE), 1
-    ):
-        start = max(0, match.start() - 180)
-        end = min(len(javascript), match.end() + 180)
-
-        fragment = javascript[start:end]
-
-        # No imprimir posibles valores sensibles.
-        fragment = re.sub(
-            r'https?://[^\s"\'`]+',
-            "[URL]",
-            fragment
-        )
-        fragment = re.sub(
-            r'(?i)(token|password|secret|authorization)'
-            r'\s*[:=]\s*["\'][^"\']+["\']',
-            r'\1=[OCULTO]',
-            fragment
-        )
-
-        print(f"Referencia {index}:")
-        print(fragment[:380].replace("\n", " "))
-
-    print("Diagnostico terminado.")
+    print("Analisis completado sin credenciales.")
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as error:
-        print("Error:", type(error).__name__)
-        raise
+    main()
