@@ -51,7 +51,7 @@ def main():
     main_scripts = [
         urllib.parse.urljoin(PAGE, src)
         for src in parser.scripts
-        if "/main." in src
+        if "main." in src
         and src.endswith(".js")
     ]
 
