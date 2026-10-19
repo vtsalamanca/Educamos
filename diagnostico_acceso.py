@@ -1,9 +1,11 @@
 
 import urllib.request
 import urllib.error
+import urllib.parse
+import http.cookiejar
 from html.parser import HTMLParser
 
-URL = "https://cerbero.jccm.es/"
+URL = "https://educamosclm.castillalamancha.es/s/messages"
 
 
 class FormParser(HTMLParser):
@@ -18,7 +20,6 @@ class FormParser(HTMLParser):
         if tag == "form":
             self.current = {
                 "method": attrs.get("method", "GET"),
-                "has_action": bool(attrs.get("action")),
                 "fields": [],
             }
 
@@ -34,8 +35,13 @@ class FormParser(HTMLParser):
 
 
 def main():
-    print("Diagnostico publico de Cerbero")
-    print("No se utilizan credenciales.")
+    print("Diagnostico EducamosCLM")
+    print("Sin credenciales ni acceso a mensajes privados.")
+
+    cookies = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPCookieProcessor(cookies)
+    )
 
     request = urllib.request.Request(
         URL,
@@ -43,18 +49,19 @@ def main():
     )
 
     try:
-        with urllib.request.urlopen(
-            request, timeout=15
-        ) as response:
+        with opener.open(request, timeout=20) as response:
             html = response.read(500_000).decode(
                 "utf-8", errors="replace"
             )
+            final_url = response.geturl()
+            parsed_url = urllib.parse.urlsplit(final_url)
 
             print("HTTP:", response.status)
-            print("URL final:", response.url.split("?")[0])
+            print("Dominio final:", parsed_url.hostname)
+            print("Ruta final:", parsed_url.path)
             print(
                 "Content-Type:",
-                response.headers.get("Content-Type"),
+                response.headers.get("Content-Type", "").split(";")[0]
             )
 
             parser = FormParser()
@@ -63,14 +70,16 @@ def main():
             print("Formularios:", len(parser.forms))
 
             for index, form in enumerate(parser.forms, 1):
-                print("Formulario", index)
+                print("Formulario:", index)
                 print("Metodo:", form["method"])
-                print("Tiene action:", form["has_action"])
                 print("Tipos de campos:", form["fields"])
+
+            print("Cookies recibidas:", len(cookies))
 
     except urllib.error.HTTPError as error:
         print("HTTP:", error.code)
-
+    except urllib.error.URLError as error:
+        print("Error de conexion:", type(error.reason).__name__)
     except Exception as error:
         print("Error:", type(error).__name__)
 
