@@ -86,6 +86,32 @@ def main():
     for route in sorted(routes)[:40]:
         print("Ruta:", route)
 
+    print("Analisis de referencias a messages:")
+
+    for index, match in enumerate(
+        re.finditer("messages", javascript, re.IGNORECASE), 1
+    ):
+        start = max(0, match.start() - 180)
+        end = min(len(javascript), match.end() + 180)
+
+        fragment = javascript[start:end]
+
+        # No imprimir posibles valores sensibles.
+        fragment = re.sub(
+            r'https?://[^\s"\'`]+',
+            "[URL]",
+            fragment
+        )
+        fragment = re.sub(
+            r'(?i)(token|password|secret|authorization)'
+            r'\s*[:=]\s*["\'][^"\']+["\']',
+            r'\1=[OCULTO]',
+            fragment
+        )
+
+        print(f"Referencia {index}:")
+        print(fragment[:380].replace("\n", " "))
+
     print("Diagnostico terminado.")
 
 
