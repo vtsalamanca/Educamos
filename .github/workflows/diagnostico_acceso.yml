@@ -1,0 +1,20 @@
+
+name: Diagnostico acceso Educamos
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostico:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Descargar codigo
+        uses: actions/checkout@v4
+
+      - name: Ejecutar diagnostico
+        run: python3 diagnostico_acceso.py
