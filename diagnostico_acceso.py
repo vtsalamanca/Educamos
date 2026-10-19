@@ -1,92 +1,97 @@
 
+import re
 import urllib.request
 import urllib.parse
-import urllib.error
-import http.cookiejar
 from html.parser import HTMLParser
 
-URL = "https://educamosclm.castillalamancha.es/s/messages"
+BASE = "https://educamosclm.castillalamancha.es"
+PAGE = BASE + "/s/messages"
+
+KEYWORDS = (
+    "cerbero", "openid", "oauth", "login",
+    "messages", "mensajeria", "mensaje",
+    "api/", "token"
+)
 
 
-class AnalizadorHTML(HTMLParser):
+class ScriptParser(HTMLParser):
     def __init__(self):
         super().__init__()
         self.scripts = []
-        self.forms = []
-        self.current_form = None
 
     def handle_starttag(self, tag, attrs):
-        attrs = dict(attrs)
+        if tag == "script":
+            src = dict(attrs).get("src")
+            if src:
+                self.scripts.append(src)
 
-        if tag == "script" and attrs.get("src"):
-            self.scripts.append(attrs["src"])
 
-        if tag == "form":
-            self.current_form = {
-                "method": attrs.get("method", "GET"),
-                "fields": [],
-            }
-
-        if tag == "input" and self.current_form is not None:
-            self.current_form["fields"].append(
-                attrs.get("type", "text")
-            )
-
-    def handle_endtag(self, tag):
-        if tag == "form" and self.current_form is not None:
-            self.forms.append(self.current_form)
-            self.current_form = None
+def download(url, limit):
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Mozilla/5.0"}
+    )
+    with urllib.request.urlopen(
+        request, timeout=25
+    ) as response:
+        return response.read(limit).decode(
+            "utf-8", errors="replace"
+        )
 
 
 def main():
-    print("Diagnostico HTML y JavaScript de Educamos")
-    print("Sin credenciales ni datos personales.")
+    print("Analisis publico JavaScript Educamos")
+    print("No se utilizan credenciales.")
 
-    cookies = http.cookiejar.CookieJar()
-    opener = urllib.request.build_opener(
-        urllib.request.HTTPCookieProcessor(cookies)
-    )
+    html = download(PAGE, 500_000)
 
-    try:
-        request = urllib.request.Request(
-            URL,
-            headers={"User-Agent": "Mozilla/5.0"}
-        )
+    parser = ScriptParser()
+    parser.feed(html)
 
-        with opener.open(request, timeout=20) as response:
-            html = response.read(500_000).decode(
-                "utf-8", errors="replace"
-            )
+    main_scripts = [
+        urllib.parse.urljoin(PAGE, src)
+        for src in parser.scripts
+        if "/main." in src
+        and src.endswith(".js")
+    ]
 
-            print("HTTP:", response.status)
-            print("Tipo:", response.headers.get("Content-Type", "").split(";")[0])
+    if not main_scripts:
+        print("No se encontro main.js")
+        return
 
-        parser = AnalizadorHTML()
-        parser.feed(html)
+    url = main_scripts[0]
+    print("Script principal localizado.")
 
-        print("Formularios:", len(parser.forms))
-        print("Archivos JavaScript:", len(parser.scripts))
-        print("Cookies:", len(cookies))
+    javascript = download(url, 8_000_000)
 
-        for index, script in enumerate(parser.scripts[:30], 1):
-            url = urllib.parse.urljoin(URL, script)
-            parsed = urllib.parse.urlsplit(url)
+    print("Caracteres analizados:", len(javascript))
 
-            # Solo mostramos rutas, nunca parámetros ni tokens.
-            print(
-                f"Script {index}:",
-                parsed.hostname,
-                parsed.path[:180]
-            )
+    for keyword in KEYWORDS:
+        matches = list(re.finditer(
+            re.escape(keyword),
+            javascript,
+            re.IGNORECASE
+        ))
+        print(f"{keyword}: {len(matches)} coincidencias")
 
-        if not parser.scripts:
-            print("No aparecen scripts externos en el HTML inicial.")
+    # Solo patrones de rutas, sin valores ni parametros.
+    routes = set(re.findall(
+        r'["\'](/(?:api|auth|oauth|s)/'
+        r'[A-Za-z0-9_./{}-]{2,120})["\']',
+        javascript
+    ))
 
-    except urllib.error.HTTPError as error:
-        print("HTTP:", error.code)
-    except Exception as error:
-        print("Error:", type(error).__name__)
+    print("Rutas candidatas:", len(routes))
+
+    for route in sorted(routes)[:40]:
+        print("Ruta:", route)
+
+    print("Diagnostico terminado.")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as error:
+        print("Error:", type(error).__name__)
+        raise
