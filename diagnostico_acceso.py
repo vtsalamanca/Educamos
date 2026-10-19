@@ -1,85 +1,89 @@
 
 import urllib.request
-import urllib.error
 import urllib.parse
+import urllib.error
 import http.cookiejar
 from html.parser import HTMLParser
 
 URL = "https://educamosclm.castillalamancha.es/s/messages"
 
 
-class FormParser(HTMLParser):
+class AnalizadorHTML(HTMLParser):
     def __init__(self):
         super().__init__()
+        self.scripts = []
         self.forms = []
-        self.current = None
+        self.current_form = None
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
 
+        if tag == "script" and attrs.get("src"):
+            self.scripts.append(attrs["src"])
+
         if tag == "form":
-            self.current = {
+            self.current_form = {
                 "method": attrs.get("method", "GET"),
                 "fields": [],
             }
 
-        elif tag == "input" and self.current is not None:
-            self.current["fields"].append(
+        if tag == "input" and self.current_form is not None:
+            self.current_form["fields"].append(
                 attrs.get("type", "text")
             )
 
     def handle_endtag(self, tag):
-        if tag == "form" and self.current is not None:
-            self.forms.append(self.current)
-            self.current = None
+        if tag == "form" and self.current_form is not None:
+            self.forms.append(self.current_form)
+            self.current_form = None
 
 
 def main():
-    print("Diagnostico EducamosCLM")
-    print("Sin credenciales ni acceso a mensajes privados.")
+    print("Diagnostico HTML y JavaScript de Educamos")
+    print("Sin credenciales ni datos personales.")
 
     cookies = http.cookiejar.CookieJar()
     opener = urllib.request.build_opener(
         urllib.request.HTTPCookieProcessor(cookies)
     )
 
-    request = urllib.request.Request(
-        URL,
-        headers={"User-Agent": "Mozilla/5.0"},
-    )
-
     try:
+        request = urllib.request.Request(
+            URL,
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
+
         with opener.open(request, timeout=20) as response:
             html = response.read(500_000).decode(
                 "utf-8", errors="replace"
             )
-            final_url = response.geturl()
-            parsed_url = urllib.parse.urlsplit(final_url)
 
             print("HTTP:", response.status)
-            print("Dominio final:", parsed_url.hostname)
-            print("Ruta final:", parsed_url.path)
+            print("Tipo:", response.headers.get("Content-Type", "").split(";")[0])
+
+        parser = AnalizadorHTML()
+        parser.feed(html)
+
+        print("Formularios:", len(parser.forms))
+        print("Archivos JavaScript:", len(parser.scripts))
+        print("Cookies:", len(cookies))
+
+        for index, script in enumerate(parser.scripts[:30], 1):
+            url = urllib.parse.urljoin(URL, script)
+            parsed = urllib.parse.urlsplit(url)
+
+            # Solo mostramos rutas, nunca parámetros ni tokens.
             print(
-                "Content-Type:",
-                response.headers.get("Content-Type", "").split(";")[0]
+                f"Script {index}:",
+                parsed.hostname,
+                parsed.path[:180]
             )
 
-            parser = FormParser()
-            parser.feed(html)
-
-            print("Formularios:", len(parser.forms))
-
-            for index, form in enumerate(parser.forms, 1):
-                print("Formulario:", index)
-                print("Metodo:", form["method"])
-                print("Tipos de campos:", form["fields"])
-
-            print("Cookies recibidas:", len(cookies))
+        if not parser.scripts:
+            print("No aparecen scripts externos en el HTML inicial.")
 
     except urllib.error.HTTPError as error:
         print("HTTP:", error.code)
-    except urllib.error.URLError as error:
-        print("Error de conexion:", type(error.reason).__name__)
     except Exception as error:
         print("Error:", type(error).__name__)
 
